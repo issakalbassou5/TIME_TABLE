@@ -25,7 +25,7 @@
 <div class="form-card">
   <div class="form-card-head">
     <h2>Informations du créneau</h2>
-    <p>Les conflits de salle, enseignant et option sont contrôlés automatiquement.</p>
+    <p>Les conflits de salle, enseignant et option du cours sont contrôlés automatiquement.</p>
   </div>
   <div class="form-card-body">
     <form id="formCreneau" method="post">
@@ -40,35 +40,21 @@
       <!-- Semaine -->
       <div class="form-group">
         <label class="form-label">Semaine <span class="form-required">*</span></label>
-        <input type="date" name="semaine" class="form-control" value="{{ form.semaine.value|default:semaine|date:'Y-m-d' }}" required>
+        <input type="date" name="semaine" class="form-control" value="{% if form.semaine.value %}{{ form.semaine.value|date:'Y-m-d'|default:form.semaine.value }}{% else %}{{ semaine|date:'Y-m-d' }}{% endif %}" required>
         <div class="form-hint">Indiquez le lundi de la semaine concernée.</div>
         {% if form.semaine.errors %}<div class="field-errors">{{ form.semaine.errors }}</div>{% endif %}
       </div>
 
       <div class="form-row">
-        <!-- Option -->
-        <div class="form-group">
-          <label class="form-label">Option / Filière <span class="form-required">*</span></label>
-          <select name="option" id="selectOption" class="form-control" required>
-            <option value="">— Sélectionner —</option>
-            {% for opt in form.option.field.queryset %}
-            <option value="{{ opt.pk }}" {% if form.option.value == opt.pk|stringformat:"s" or form.initial.option == opt or form.initial.option.pk == opt.pk %}selected{% endif %}>
-              {{ opt.nom }} (niv. {{ opt.niveau }})
-            </option>
-            {% endfor %}
-          </select>
-          {% if form.option.errors %}<div class="field-errors">{{ form.option.errors }}</div>{% endif %}
-        </div>
-
         <!-- Cours -->
         <div class="form-group">
           <label class="form-label">Cours <span class="form-required">*</span></label>
           <select name="cours" id="selectCours" class="form-control" required>
-            <option value="">— Sélectionnez d'abord une option —</option>
+            <option value="">— Sélectionner —</option>
             {% for c in form.cours.field.queryset %}
             <option value="{{ c.codeCours }}" data-option="{{ c.option_id }}"
               {% if form.cours.value == c.codeCours %}selected{% endif %}>
-              {{ c.intitule }} ({{ c.codeCours }})
+              {{ c.intitule }} ({{ c.codeCours }}) — {{ c.option.nom }}
             </option>
             {% endfor %}
           </select>
@@ -81,7 +67,7 @@
           <select name="enseignant" id="selectEnseignant" class="form-control" required>
             <option value="">— Sélectionner —</option>
             {% for e in form.enseignant.field.queryset %}
-            <option value="{{ e.pk }}" {% if form.enseignant.value == e.pk|stringformat:"s" %}selected{% endif %}>
+            <option value="{{ e.pk }}" {% if form.enseignant.value|stringformat:"s" == e.pk|stringformat:"s" %}selected{% endif %}>
               {{ e.prenom }} {{ e.nom }}
             </option>
             {% endfor %}
@@ -95,7 +81,7 @@
           <select name="salle" id="selectSalle" class="form-control" required>
             <option value="">— Sélectionner —</option>
             {% for s in form.salle.field.queryset %}
-            <option value="{{ s.pk }}" {% if form.salle.value == s.pk|stringformat:"s" %}selected{% endif %}>
+            <option value="{{ s.pk }}" {% if form.salle.value|stringformat:"s" == s.pk|stringformat:"s" %}selected{% endif %}>
               {{ s.nom }} (cap. {{ s.capacite }})
             </option>
             {% endfor %}
@@ -146,30 +132,10 @@
 <script>
 const CSRF = "{{ csrf_token }}";
 const AJAX_URL = "{% url 'ajax_conflits' %}";
-const AJAX_COURS_URL = "/emplois-du-temps/grille/ajax/cours/";
-
-// ── Filtre cours selon option ────────────────────────────────────────────────
-function filtrerCours(optionId) {
-  const sel = document.getElementById('selectCours');
-  const current = sel.value;
-  Array.from(sel.options).forEach(opt => {
-    if (!opt.value) return;
-    opt.hidden = opt.dataset.option !== String(optionId);
-  });
-  if (sel.options[sel.selectedIndex]?.hidden) sel.value = '';
-}
-
-document.getElementById('selectOption').addEventListener('change', function() {
-  filtrerCours(this.value);
-  verifierConflits();
-});
-// Init au chargement
-filtrerCours(document.getElementById('selectOption').value);
-
 // ── Vérification AJAX conflits ───────────────────────────────────────────────
 async function verifierConflits(manualClick = false) {
   const semaine    = document.querySelector('[name=semaine]').value;
-  const option_id  = document.getElementById('selectOption').value;
+  const cours      = document.getElementById('selectCours').value;
   const enseignant = document.getElementById('selectEnseignant').value;
   const salle      = document.getElementById('selectSalle').value;
   const jour       = document.getElementById('selectJour').value;
@@ -178,7 +144,7 @@ async function verifierConflits(manualClick = false) {
 
   if (!semaine || !jour || !plage) return 0;
 
-  const body = new URLSearchParams({ semaine, option_id, enseignant_id: enseignant,
+  const body = new URLSearchParams({ semaine, cours_id: cours, enseignant_id: enseignant,
     salle_id: salle, jour, plage, exclude_id: excludeId });
 
   const res  = await fetch(AJAX_URL, {
@@ -216,7 +182,7 @@ async function verifierConflits(manualClick = false) {
   return json.count;
 }
 
-['selectEnseignant','selectSalle','selectJour','selectPlage'].forEach(id => {
+['selectCours','selectEnseignant','selectSalle','selectJour','selectPlage'].forEach(id => {
   document.getElementById(id)?.addEventListener('change', () => verifierConflits());
 });
 
