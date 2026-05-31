@@ -55,20 +55,16 @@ def construire_grille(emploi_du_temps: EmploiDuTemps) -> list[dict]:
 
 def construire_grille_semaine(
     semaine: date,
-    option_id: int | None = None,
     salle_id: int | None = None,
 ) -> list[dict]:
-    """Grille hebdomadaire (toutes options/salles) — style PHP."""
+    """Grille hebdomadaire d'une salle donnée."""
     qs = Creneau.objects.filter(
         emploiDuTemps__semaine=semaine,
     ).select_related("cours", "enseignant", "salle", "option", "emploiDuTemps")
 
-    if option_id:
-        qs = qs.filter(option_id=option_id)
     if salle_id:
         qs = qs.filter(salle_id=salle_id)
 
-    # Plusieurs créneaux possibles par cellule (filtre = toutes options)
     creneaux_par_cellule: dict[tuple, list] = {}
     for c in qs:
         key = (c.jour, c.heureDebut, c.heureFin)

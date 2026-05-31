@@ -1,20 +1,28 @@
 from django import forms
 from django.core.exceptions import ValidationError
 
-from .models import Cours, Creneau, EmploiDuTemps, Option, Salle, Utilisateur
+from .models import Cours, Creneau, EmploiDuTemps, Salle, Utilisateur
 from .grille import PLAGES_HORAIRES, JOURS_EDT, trouver_plage
 
 
 class EmploiDuTempsForm(forms.ModelForm):
     class Meta:
         model = EmploiDuTemps
-        fields = ["semaine", "option"]
+        fields = ["semaine"]
         widgets = {"semaine": forms.DateInput(attrs={"type": "date"})}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for field in self.fields.values():
             field.widget.attrs.setdefault("class", "form-control")
+
+    def clean_semaine(self):
+        from datetime import timedelta
+
+        d = self.cleaned_data.get("semaine")
+        if d:
+            return d - timedelta(days=d.weekday())
+        return d
 
 
 class CreneauForm(forms.ModelForm):
@@ -30,7 +38,7 @@ class CreneauForm(forms.ModelForm):
     def __init__(self, *args, emploi_du_temps: EmploiDuTemps, **kwargs):
         super().__init__(*args, **kwargs)
         self.emploi_du_temps = emploi_du_temps
-        self.fields["cours"].queryset = Cours.objects.filter(option=emploi_du_temps.option)
+        self.fields["cours"].queryset = Cours.objects.select_related("option").all()
         self.fields["enseignant"].queryset = Utilisateur.objects.filter(role=Utilisateur.Role.ENSEIGNANT)
         for field in self.fields.values():
             field.widget.attrs.setdefault("class", "form-control")
@@ -42,7 +50,8 @@ class CreneauForm(forms.ModelForm):
         heure_fin = cd.get("heureFin")
         enseignant = cd.get("enseignant")
         salle = cd.get("salle")
-        if not all([jour, heure_debut, heure_fin, enseignant, salle]):
+        cours = cd.get("cours")
+        if not all([jour, heure_debut, heure_fin, enseignant, salle, cours]):
             return cd
         if heure_debut >= heure_fin:
             raise ValidationError("L'heure de début doit être avant l'heure de fin.")
@@ -54,14 +63,14 @@ class CreneauForm(forms.ModelForm):
             raise ValidationError("Cette salle est déjà occupée sur ce créneau.")
         if chevauchements.filter(enseignant=enseignant).exists():
             raise ValidationError("Cet enseignant est déjà affecté sur ce créneau.")
-        if chevauchements.filter(option=self.emploi_du_temps.option).exists():
+        if chevauchements.filter(option=cours.option).exists():
             raise ValidationError("Cette option a déjà un cours sur ce créneau.")
         return cd
 
     def save(self, commit=True):
         creneau = super().save(commit=False)
         creneau.emploiDuTemps = self.emploi_du_temps
-        creneau.option = self.emploi_du_temps.option
+        creneau.option = creneau.cours.option
         if commit:
             creneau.save()
         return creneau
@@ -77,7 +86,6 @@ JOUR_CHOICES = [(code, label) for code, label in JOURS_EDT]
 class CreneauDirectForm(forms.Form):
     """Formulaire de création/modification de créneau directement depuis la grille semaine."""
     semaine    = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}), label="Semaine (lundi)")
-    option     = forms.ModelChoiceField(queryset=Option.objects.all(), label="Option / Filière")
     jour       = forms.ChoiceField(choices=[("", "— Sélectionner —")] + JOUR_CHOICES, label="Jour")
     plage      = forms.ChoiceField(choices=[("", "— Sélectionner —")] + PLAGE_CHOICES, label="Créneau horaire")
     cours      = forms.ModelChoiceField(queryset=Cours.objects.all(), label="Cours")
@@ -92,18 +100,7 @@ class CreneauDirectForm(forms.Form):
         self.instance = instance
         for field in self.fields.values():
             field.widget.attrs.setdefault("class", "form-control")
-        # Si une option est déjà sélectionnée, filtrer les cours
-        option_val = None
-        if self.data.get("option"):
-            try:
-                option_val = int(self.data["option"])
-            except (ValueError, TypeError):
-                pass
-        elif self.initial.get("option"):
-            opt = self.initial["option"]
-            option_val = opt.pk if hasattr(opt, "pk") else int(opt)
-        if option_val:
-            self.fields["cours"].queryset = Cours.objects.filter(option_id=option_val)
+        self.fields["cours"].queryset = Cours.objects.select_related("option").all()
 
     def clean_semaine(self):
         """Force la date au lundi de la semaine — sécurité côté serveur."""

@@ -45,19 +45,19 @@ def tableau_de_bord(request: HttpRequest) -> HttpResponse:
             "nb_emplois": EmploiDuTemps.objects.count(),
             "nb_brouillons": EmploiDuTemps.objects.filter(statut=EmploiDuTemps.Statut.BROUILLON).count(),
             "nb_publies": EmploiDuTemps.objects.filter(statut=EmploiDuTemps.Statut.PUBLIE).count(),
-            "emplois_recents": EmploiDuTemps.objects.select_related("option")[:5],
+            "emplois_recents": EmploiDuTemps.objects.select_related("creePar")[:5],
         })
     elif utilisateur.role == Utilisateur.Role.ENSEIGNANT:
         template = "emploi_du_temps/tableaux_de_bord/enseignant.html"
         context["emplois_du_temps"] = EmploiDuTemps.objects.filter(
             statut=EmploiDuTemps.Statut.PUBLIE,
             creneaux__enseignant=utilisateur,
-        ).select_related("option").distinct()
+        ).distinct()
     elif utilisateur.role == Utilisateur.Role.ETUDIANT:
         template = "emploi_du_temps/tableaux_de_bord/etudiant.html"
         context["emplois_du_temps"] = EmploiDuTemps.objects.filter(
             statut=EmploiDuTemps.Statut.PUBLIE
-        ).select_related("option")
+        )
     else:
         return HttpResponseForbidden("Rôle utilisateur non autorisé.")
 
@@ -90,14 +90,22 @@ def _get_lundi(semaine_str: str | None) -> date:
 def grille_edt(request: HttpRequest, semaine: str | None = None) -> HttpResponse:
     """Grille EDT par semaine — vue principale (équivalent PHP /edt)."""
     semaine_date = _get_lundi(semaine or request.GET.get("semaine"))
-    option_id = request.GET.get("option_id", "")
-    salle_id = request.GET.get("salle_id", "")
+    salles = Salle.objects.all()
+    salle_id_param = request.GET.get("salle_id", "")
+    try:
+        salle_id = int(salle_id_param) if salle_id_param else None
+    except (TypeError, ValueError):
+        salle_id = None
+    if salle_id and not salles.filter(pk=salle_id).exists():
+        salle_id = None
+    if not salle_id:
+        premiere_salle = salles.first()
+        salle_id = premiere_salle.pk if premiere_salle else None
     est_cd = request.user.role == Utilisateur.Role.CD
 
     lignes = construire_grille_semaine(
         semaine_date,
-        option_id=int(option_id) if option_id else None,
-        salle_id=int(salle_id) if salle_id else None,
+        salle_id=salle_id,
     )
 
     # Semaines déjà planifiées
@@ -108,7 +116,7 @@ def grille_edt(request: HttpRequest, semaine: str | None = None) -> HttpResponse
     )
 
     # Emplois de cette semaine (pour publication / export)
-    emplois_semaine = EmploiDuTemps.objects.filter(semaine=semaine_date).select_related("option")
+    emplois_semaine = EmploiDuTemps.objects.filter(semaine=semaine_date).prefetch_related("creneaux")
 
     return render(request, "emploi_du_temps/grille/index.html", {
         "semaine": semaine_date,
@@ -117,10 +125,8 @@ def grille_edt(request: HttpRequest, semaine: str | None = None) -> HttpResponse
         "jours": JOURS_EDT,
         "lignes": lignes,
         "plages": PLAGES_HORAIRES,
-        "options": Option.objects.all(),
-        "salles": Salle.objects.all(),
-        "option_id_actif": int(option_id) if option_id else None,
-        "salle_id_actif": int(salle_id) if salle_id else None,
+        "salles": salles,
+        "salle_id_actif": salle_id,
         "semaines_dispo": semaines_dispo,
         "est_cd": est_cd,
         "emplois_semaine": emplois_semaine,
@@ -143,20 +149,18 @@ def ajouter_creneau_grille(request: HttpRequest) -> HttpResponse:
     if request.method == "POST":
         form = CreneauDirectForm(request.POST)
         if form.is_valid():
-            # On récupère ou crée l'EmploiDuTemps brouillon pour cette semaine+option
-            option = form.cleaned_data["option"]
+            # On récupère ou crée l'EmploiDuTemps brouillon global pour cette semaine.
             # Toujours utiliser LE LUNDI de la semaine comme clé
             semaine_lundi = _get_lundi(str(form.cleaned_data["semaine"]))
             emploi, _ = EmploiDuTemps.objects.get_or_create(
                 semaine=semaine_lundi,
-                option=option,
                 defaults={"creePar": request.user, "statut": EmploiDuTemps.Statut.BROUILLON},
             )
             try:
                 plage = trouver_plage(form.cleaned_data["plage"])
                 creneau = Creneau(
                     emploiDuTemps=emploi,
-                    option=option,
+                    option=form.cleaned_data["cours"].option,
                     jour=form.cleaned_data["jour"],
                     heureDebut=plage["debut"],
                     heureFin=plage["fin"],
@@ -174,24 +178,20 @@ def ajouter_creneau_grille(request: HttpRequest) -> HttpResponse:
                     "form": form,
                     "semaine": semaine_date,
                     "titre": "Ajouter un créneau",
+                    "plages": PLAGES_HORAIRES,
+                    "jours": JOURS_EDT,
                 })
-            return redirect(f"/emplois-du-temps/grille/{semaine_lundi.isoformat()}/?option_id={option.pk}")
+            return redirect(f"/emplois-du-temps/grille/{semaine_lundi.isoformat()}/?salle_id={form.cleaned_data['salle'].pk}")
 
         return render(request, "emploi_du_temps/grille/formulaire.html", {
             "form": form,
             "semaine": semaine_date,
             "titre": "Ajouter un créneau",
+            "plages": PLAGES_HORAIRES,
+            "jours": JOURS_EDT,
         })
 
     form = CreneauDirectForm(initial=initial)
-    # Restreindre les cours si option pré-sélectionnée
-    if initial.get("option_id"):
-        try:
-            opt = Option.objects.get(pk=initial["option_id"])
-            form.fields["cours"].queryset = Cours.objects.filter(option=opt)
-        except Option.DoesNotExist:
-            pass
-
     return render(request, "emploi_du_temps/grille/formulaire.html", {
         "form": form,
         "semaine": semaine_date,
@@ -216,6 +216,7 @@ def modifier_creneau_grille(request: HttpRequest, pk: int) -> HttpResponse:
                 creneau.heureDebut = plage["debut"]
                 creneau.heureFin = plage["fin"]
                 creneau.cours = form.cleaned_data["cours"]
+                creneau.option = form.cleaned_data["cours"].option
                 creneau.enseignant = form.cleaned_data["enseignant"]
                 creneau.salle = form.cleaned_data["salle"]
                 creneau.full_clean()
@@ -226,9 +227,9 @@ def modifier_creneau_grille(request: HttpRequest, pk: int) -> HttpResponse:
                     messages.error(request, msg)
                 return render(request, "emploi_du_temps/grille/formulaire.html", {
                     "form": form, "semaine": semaine, "titre": "Modifier un créneau",
-                    "creneau": creneau,
+                    "creneau": creneau, "plages": PLAGES_HORAIRES, "jours": JOURS_EDT,
                 })
-            return redirect(f"/emplois-du-temps/grille/{semaine.isoformat()}/")
+            return redirect(f"/emplois-du-temps/grille/{semaine.isoformat()}/?salle_id={creneau.salle_id}")
     else:
         # Préremplir le formulaire avec les valeurs existantes
         # Trouver la plage correspondante
@@ -239,14 +240,12 @@ def modifier_creneau_grille(request: HttpRequest, pk: int) -> HttpResponse:
                 break
         form = CreneauDirectForm(initial={
             "semaine": semaine.isoformat(),
-            "option": creneau.option,
             "jour": creneau.jour,
             "plage": plage_id,
             "cours": creneau.cours,
             "enseignant": creneau.enseignant,
             "salle": creneau.salle,
         }, instance=creneau)
-        form.fields["cours"].queryset = Cours.objects.filter(option=creneau.option)
 
     return render(request, "emploi_du_temps/grille/formulaire.html", {
         "form": form, "semaine": semaine, "titre": "Modifier un créneau",
@@ -262,7 +261,7 @@ def supprimer_creneau_grille(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method == "POST":
         creneau.delete()
         messages.success(request, "Créneau supprimé.")
-        return redirect(f"/emplois-du-temps/grille/{semaine.isoformat()}/")
+        return redirect(f"/emplois-du-temps/grille/{semaine.isoformat()}/?salle_id={creneau.salle_id}")
     return render(request, "emploi_du_temps/grille/confirmer_suppression.html", {
         "creneau": creneau, "semaine": semaine,
     })
@@ -303,7 +302,7 @@ def ajax_conflits(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"conflits": [], "count": 0})
 
     semaine_str = request.POST.get("semaine", "")
-    option_id = request.POST.get("option_id")
+    cours_id = request.POST.get("cours_id")
     enseignant_id = request.POST.get("enseignant_id")
     salle_id = request.POST.get("salle_id")
     plage_id = request.POST.get("plage", "")
@@ -327,23 +326,37 @@ def ajax_conflits(request: HttpRequest) -> JsonResponse:
     ).select_related("cours", "enseignant", "salle", "option")
 
     if exclude_id:
-        qs = qs.exclude(pk=int(exclude_id))
+        try:
+            qs = qs.exclude(pk=int(exclude_id))
+        except (TypeError, ValueError):
+            pass
 
     conflits = []
     if salle_id:
-        for c in qs.filter(salle_id=int(salle_id)):
+        try:
+            qs_salle = qs.filter(salle_id=int(salle_id))
+        except (TypeError, ValueError):
+            qs_salle = Creneau.objects.none()
+        for c in qs_salle:
             conflits.append({
                 "type": "salle",
                 "message": f"Conflit SALLE : « {c.salle.nom} » est déjà occupée le {c.get_jour_display()} de {c.heureDebut.strftime('%H:%M')} à {c.heureFin.strftime('%H:%M')} par {c.cours.intitule} ({c.enseignant.prenom} {c.enseignant.nom}).",
             })
     if enseignant_id:
-        for c in qs.filter(enseignant_id=int(enseignant_id)):
+        try:
+            qs_enseignant = qs.filter(enseignant_id=int(enseignant_id))
+        except (TypeError, ValueError):
+            qs_enseignant = Creneau.objects.none()
+        for c in qs_enseignant:
             conflits.append({
                 "type": "enseignant",
                 "message": f"Conflit ENSEIGNANT : {c.enseignant.prenom} {c.enseignant.nom} est déjà programmé(e) le {c.get_jour_display()} de {c.heureDebut.strftime('%H:%M')} à {c.heureFin.strftime('%H:%M')} en salle {c.salle.nom} pour {c.cours.intitule}.",
             })
+    option_id = None
+    if cours_id:
+        option_id = Cours.objects.filter(pk=cours_id).values_list("option_id", flat=True).first()
     if option_id:
-        for c in qs.filter(option_id=int(option_id)):
+        for c in qs.filter(option_id=option_id):
             conflits.append({
                 "type": "option",
                 "message": f"Conflit OPTION : l'option « {c.option.nom} » a déjà un cours le {c.get_jour_display()} de {c.heureDebut.strftime('%H:%M')} à {c.heureFin.strftime('%H:%M')} ({c.cours.intitule} — salle {c.salle.nom}).",
@@ -374,7 +387,7 @@ def ajax_cours_par_option(request: HttpRequest, option_id: int) -> JsonResponse:
 @login_required
 @cd_requis
 def liste_emplois_du_temps(request: HttpRequest) -> HttpResponse:
-    emplois_du_temps = EmploiDuTemps.objects.select_related("option", "creePar")
+    emplois_du_temps = EmploiDuTemps.objects.select_related("creePar")
     return render(request, "emploi_du_temps/emplois_du_temps/liste.html", {
         "emplois_du_temps": emplois_du_temps,
     })
@@ -401,7 +414,7 @@ def creer_emploi_du_temps(request: HttpRequest) -> HttpResponse:
 @login_required
 def detail_emploi_du_temps(request: HttpRequest, pk: int) -> HttpResponse:
     emploi = get_object_or_404(
-        EmploiDuTemps.objects.select_related("option", "creePar")
+        EmploiDuTemps.objects.select_related("creePar")
         .prefetch_related("creneaux__cours", "creneaux__enseignant", "creneaux__salle"),
         pk=pk,
     )
@@ -455,7 +468,7 @@ def publier_emploi_du_temps(request: HttpRequest, pk: int) -> HttpResponse:
 @cd_requis
 def editeur_emploi_du_temps(request: HttpRequest, pk: int) -> HttpResponse:
     emploi = get_object_or_404(
-        EmploiDuTemps.objects.select_related("option", "creePar"), pk=pk
+        EmploiDuTemps.objects.select_related("creePar"), pk=pk
     )
     from emploi_du_temps.grille import construire_grille
     creneaux = list(emploi.creneaux.select_related("salle"))

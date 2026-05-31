@@ -23,10 +23,13 @@
     <div class="page-icon"><i class="ti ti-calendar-week"></i></div>
     <div>
       <h1 class="page-title" style="margin:0;">Emploi du Temps</h1>
-      <p class="page-sub" style="margin:0;">Semaine du <strong>{{ semaine|date:"d/m/Y" }}</strong> au {{ semaine|date:"d/m/Y"|add:" + 5 jours" }}
+      <p class="page-sub" style="margin:0;">Semaine du <strong>{{ semaine|date:"d/m/Y" }}</strong>
+        {% if salle_id_actif %}
+          {% for s in salles %}{% if s.pk == salle_id_actif %}— Salle <strong>{{ s.nom }}</strong>{% endif %}{% endfor %}
+        {% endif %}
         {% for emp in emplois_semaine %}
           <span class="badge-statut {% if emp.statut == 'PUBLIE' %}badge-publie{% else %}badge-brouillon{% endif %}">
-            {{ emp.option.nom }} — {{ emp.get_statut_display }}
+            {{ emp.get_statut_display }}
           </span>
         {% endfor %}
       </p>
@@ -74,10 +77,10 @@
         <i class="ti ti-download"></i> Exporter <i class="ti ti-chevron-down" style="font-size:11px;"></i>
       </button>
       <div id="exportDropdown" class="dropdown-menu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--gray-200);border-radius:10px;box-shadow:var(--shadow-md);min-width:200px;z-index:100;overflow:hidden;">
-        <a href="{% url 'grille_edt_semaine' semaine|date:'Y-m-d' %}?export=pdf&option_id={{ option_id_actif|default:'' }}" class="dropdown-item">
+        <a href="{% url 'grille_edt_semaine' semaine|date:'Y-m-d' %}?export=pdf&salle_id={{ salle_id_actif|default:'' }}" class="dropdown-item">
           <i class="ti ti-file-type-pdf" style="color:#e74c3c;"></i> Exporter en PDF
         </a>
-        <a href="{% url 'grille_edt_semaine' semaine|date:'Y-m-d' %}?export=imprimer&option_id={{ option_id_actif|default:'' }}" class="dropdown-item" target="_blank">
+        <a href="{% url 'grille_edt_semaine' semaine|date:'Y-m-d' %}?export=imprimer&salle_id={{ salle_id_actif|default:'' }}" class="dropdown-item" target="_blank">
           <i class="ti ti-printer" style="color:var(--blue);"></i> Version imprimable
         </a>
       </div>
@@ -88,7 +91,7 @@
 
 <!-- ── Navigation semaines ── -->
 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;padding:12px 14px;background:var(--gray-50);border-radius:12px;border:1px solid var(--gray-200);">
-  <a href="/emplois-du-temps/grille/{{ semaine_prev|date:'Y-m-d' }}/{% if option_id_actif %}?option_id={{ option_id_actif }}{% endif %}" class="btn btn-secondary btn-sm">
+  <a href="/emplois-du-temps/grille/{{ semaine_prev|date:'Y-m-d' }}/{% if salle_id_actif %}?salle_id={{ salle_id_actif }}{% endif %}" class="btn btn-secondary btn-sm">
     <i class="ti ti-chevron-left"></i> Préc.
   </a>
 
@@ -96,13 +99,13 @@
          data-semaine="{{ semaine|date:'Y-m-d' }}"
          onchange="allerSemaine(this.value)">
 
-  <a href="/emplois-du-temps/grille/{{ semaine_next|date:'Y-m-d' }}/{% if option_id_actif %}?option_id={{ option_id_actif }}{% endif %}" class="btn btn-secondary btn-sm">
+  <a href="/emplois-du-temps/grille/{{ semaine_next|date:'Y-m-d' }}/{% if salle_id_actif %}?salle_id={{ salle_id_actif }}{% endif %}" class="btn btn-secondary btn-sm">
     Suiv. <i class="ti ti-chevron-right"></i>
   </a>
 
   {% if semaines_dispo %}
   <select class="form-control" style="width:210px;display:inline-block;"
-          onchange="if(this.value) window.location='/emplois-du-temps/grille/'+this.value+'/'">
+          onchange="if(this.value) window.location='/emplois-du-temps/grille/'+this.value+'/{% if salle_id_actif %}?salle_id={{ salle_id_actif }}{% endif %}'">
     <option value="">— Semaines planifiées —</option>
     {% for sd in semaines_dispo %}
     <option value="{{ sd|date:'Y-m-d' }}" {% if sd == semaine %}selected{% endif %}>
@@ -120,20 +123,13 @@
 <!-- ── Filtres ── -->
 <form method="GET" action="/emplois-du-temps/grille/{{ semaine|date:'Y-m-d' }}/"
       style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center;">
-  <select name="option_id" class="form-control" style="width:190px;display:inline-block;">
-    <option value="">Toutes les options</option>
-    {% for opt in options %}
-    <option value="{{ opt.pk }}" {% if option_id_actif == opt.pk %}selected{% endif %}>{{ opt.nom }}</option>
-    {% endfor %}
-  </select>
-  <select name="salle_id" class="form-control" style="width:160px;display:inline-block;">
-    <option value="">Toutes les salles</option>
+  <select name="salle_id" class="form-control" style="width:220px;display:inline-block;">
     {% for s in salles %}
-    <option value="{{ s.pk }}" {% if salle_id_actif == s.pk %}selected{% endif %}>{{ s.nom }}</option>
+    <option value="{{ s.pk }}" {% if salle_id_actif == s.pk %}selected{% endif %}>{{ s.site }} — {{ s.nom }}</option>
     {% endfor %}
   </select>
   <button type="submit" class="btn btn-primary btn-sm"><i class="ti ti-filter"></i> Filtrer</button>
-  <a href="/emplois-du-temps/grille/{{ semaine|date:'Y-m-d' }}/" class="btn btn-secondary btn-sm"><i class="ti ti-x"></i> Reset</a>
+  <a href="/emplois-du-temps/grille/{{ semaine|date:'Y-m-d' }}/" class="btn btn-secondary btn-sm"><i class="ti ti-x"></i> Salle par défaut</a>
 </form>
 
 <!-- ── Grille officielle ── -->
@@ -194,12 +190,6 @@
           {% endif %}
           {% endfor %}
 
-          {% if cellule.creneaux and est_cd %}
-          <a href="{% url 'ajouter_creneau_grille' %}?semaine={{ semaine|date:'Y-m-d' }}&jour={{ cellule.jour }}&plage={{ cellule.plage.id }}"
-             class="edt-add-btn edt-add-small" title="Ajouter un autre créneau">
-            <i class="ti ti-plus"></i>
-          </a>
-          {% endif %}
 
         </td>
         {% endfor %}
@@ -217,7 +207,7 @@
   {% for emp in emplois_semaine %}
   <span class="badge-statut {% if emp.statut == 'PUBLIE' %}badge-publie{% else %}badge-brouillon{% endif %}" style="margin-left:8px;">
     <i class="ti {% if emp.statut == 'PUBLIE' %}ti-circle-check{% else %}ti-pencil{% endif %}"></i>
-    {{ emp.option.nom }} — {{ emp.get_statut_display }}
+    {{ emp.get_statut_display }}
     ({{ emp.creneaux.count }} créneau{% if emp.creneaux.count > 1 %}x{% endif %})
   </span>
   {% endfor %}
@@ -273,7 +263,7 @@ function allerSemaine(weekValue) {
   lundi.setDate(jan4.getDate() - dow + 1 + (parseInt(week) - 1) * 7);
   const iso = lundi.toISOString().split('T')[0];
   const params = new URLSearchParams(window.location.search);
-  const filtre = params.get('option_id') ? '?option_id=' + params.get('option_id') : '';
+  const filtre = params.get('salle_id') ? '?salle_id=' + params.get('salle_id') : '';
   window.location = '/emplois-du-temps/grille/' + iso + '/' + filtre;
 }
 
