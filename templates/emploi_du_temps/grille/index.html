@@ -39,7 +39,7 @@
   <!-- Actions principales -->
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
     {% if est_cd %}
-    <a class="btn btn-primary" href="{% url 'ajouter_creneau_grille' %}?semaine={{ semaine|date:'Y-m-d' }}">
+    <a class="btn btn-primary" href="{% url 'ajouter_creneau_grille' %}?semaine={{ semaine|date:'Y-m-d' }}{% if salle_id_actif %}&salle={{ salle_id_actif }}{% endif %}">
       <i class="ti ti-plus"></i> Ajouter un créneau
     </a>
 
@@ -154,7 +154,7 @@
       <tr>
         <td class="edt-horaire-cell"><strong>{{ ligne.plage.label }}</strong></td>
         {% for cellule in ligne.cellules %}
-        <td class="edt-day-cell">
+        <td class="edt-day-cell"{% if est_cd and not cellule.creneaux %} data-add-url="{% url 'ajouter_creneau_grille' %}?semaine={{ semaine|date:'Y-m-d' }}{% if salle_id_actif %}&salle={{ salle_id_actif }}{% endif %}&jour={{ cellule.jour }}&plage={{ cellule.plage.id }}" onclick="window.location=this.dataset.addUrl" style="cursor:pointer;"{% endif %}>
 
           {% for cr in cellule.creneaux %}
           <div class="edt-card">
@@ -181,8 +181,8 @@
           </div>
           {% empty %}
           {% if est_cd %}
-          <a href="{% url 'ajouter_creneau_grille' %}?semaine={{ semaine|date:'Y-m-d' }}&jour={{ cellule.jour }}&plage={{ cellule.plage.id }}"
-             class="edt-add-btn" title="Ajouter un créneau ici">
+          <a href="{% url 'ajouter_creneau_grille' %}?semaine={{ semaine|date:'Y-m-d' }}{% if salle_id_actif %}&salle={{ salle_id_actif }}{% endif %}&jour={{ cellule.jour }}&plage={{ cellule.plage.id }}"
+             class="edt-add-btn" title="Ajouter un créneau ici" onclick="event.stopPropagation();">
             <i class="ti ti-plus"></i>
           </a>
           {% else %}

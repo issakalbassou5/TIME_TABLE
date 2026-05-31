@@ -40,7 +40,7 @@
       <!-- Semaine -->
       <div class="form-group">
         <label class="form-label">Semaine <span class="form-required">*</span></label>
-        <input type="date" name="semaine" class="form-control" value="{{ form.semaine.value|default:semaine|date:'Y-m-d' }}" required>
+        <input type="date" name="semaine" class="form-control" value="{% if form.semaine.value %}{{ form.semaine.value|date:'Y-m-d'|default:form.semaine.value }}{% else %}{{ semaine|date:'Y-m-d' }}{% endif %}" required>
         <div class="form-hint">Indiquez le lundi de la semaine concernée.</div>
         {% if form.semaine.errors %}<div class="field-errors">{{ form.semaine.errors }}</div>{% endif %}
       </div>
@@ -67,7 +67,7 @@
           <select name="enseignant" id="selectEnseignant" class="form-control" required>
             <option value="">— Sélectionner —</option>
             {% for e in form.enseignant.field.queryset %}
-            <option value="{{ e.pk }}" {% if form.enseignant.value == e.pk|stringformat:"s" %}selected{% endif %}>
+            <option value="{{ e.pk }}" {% if form.enseignant.value|stringformat:"s" == e.pk|stringformat:"s" %}selected{% endif %}>
               {{ e.prenom }} {{ e.nom }}
             </option>
             {% endfor %}
@@ -81,7 +81,7 @@
           <select name="salle" id="selectSalle" class="form-control" required>
             <option value="">— Sélectionner —</option>
             {% for s in form.salle.field.queryset %}
-            <option value="{{ s.pk }}" {% if form.salle.value == s.pk|stringformat:"s" %}selected{% endif %}>
+            <option value="{{ s.pk }}" {% if form.salle.value|stringformat:"s" == s.pk|stringformat:"s" %}selected{% endif %}>
               {{ s.nom }} (cap. {{ s.capacite }})
             </option>
             {% endfor %}

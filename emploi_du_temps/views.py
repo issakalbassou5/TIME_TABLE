@@ -140,8 +140,16 @@ def ajouter_creneau_grille(request: HttpRequest) -> HttpResponse:
     semaine_date = _get_lundi(semaine_str)
 
     # Préremplissage si clic sur une cellule
+    salle_initiale = request.GET.get("salle") or request.GET.get("salle_id") or ""
+    if salle_initiale:
+        try:
+            salle_initiale = str(Salle.objects.get(pk=int(salle_initiale)).pk)
+        except (Salle.DoesNotExist, TypeError, ValueError):
+            salle_initiale = ""
+
     initial = {
-        "semaine": semaine_date.isoformat(),
+        "semaine": semaine_date,
+        "salle": salle_initiale,
         "jour": request.GET.get("jour", ""),
         "plage": request.GET.get("plage", ""),
     }
